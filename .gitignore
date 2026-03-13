@@ -2,3 +2,6 @@
 
 ## ignore __pycache__ folders at all levels
 __pycache__/
+
+## contains api key
+secrets.sh

@@ -11,13 +11,13 @@ This module corresponds to the Julia notebook flow:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 
 import numpy as np
 
 from bayesian_inference import posterior_update
 from goal_model import GOALS, PLANS, PRIOR
-from likelihood_models import action_likelihood, symbolic_utterance_likelihood
+from likelihood_models import action_likelihood
 from utils import goal_prob_dict, rounded
 
 
@@ -37,7 +37,7 @@ class Observation:
 def run_inference_loop(
     observations: List[Observation],
     act_noise: float = 0.05,
-    utterance_likelihood_table: Optional[Dict[str, Dict[str, float]]] = None,
+    utterance_likelihood_fn: Optional[Callable[..., float]] = None,
 ) -> Dict[str, object]:
     """Sequentially update goal posterior for the given observation list.
     
@@ -61,13 +61,17 @@ def run_inference_loop(
             if obs.kind == "act":
                 likelihood[i] = action_likelihood(obs.value, state, plan, act_noise=act_noise)
             elif obs.kind == "utterance":
-                if utterance_likelihood_table is None:
-                    raise ValueError("utterance_likelihood_table is required for utterance observations")
-                likelihood[i] = symbolic_utterance_likelihood(
-                    obs.value,
-                    goal,
-                    utterance_likelihood_table,
-                )
+                if utterance_likelihood_fn is None:
+                    raise ValueError(
+                        "For utterance observations, provide utterance_likelihood_fn"
+                    )
+                try:
+                    likelihood[i] = float(
+                        utterance_likelihood_fn(obs.value, goal, plan, state)
+                    )
+                except TypeError:
+                    # Backward compatibility for older 2-arg callables.
+                    likelihood[i] = float(utterance_likelihood_fn(obs.value, goal))
             else:
                 raise ValueError(f"Unknown observation kind: {obs.kind}")
 
@@ -111,10 +115,10 @@ def _test_notebook_action_examples() -> None:
     """example from the notebook
     T=3, noise=0.05 
         P(goal)		goal
-        0.095		greek_salad
-        0.142		veggie_burger
-        0.227		fried_rice
-        0.536		burrito_bowl
+        0.011		greek_salad
+        0.017		veggie_burger
+        0.030		fried_rice
+        0.942		burrito_bowl
     """
 
     # Julia cell: observations = [get(tomato), get(onion), get(olives)], T=3
