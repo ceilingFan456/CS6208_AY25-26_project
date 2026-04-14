@@ -56,7 +56,7 @@ def main():
     grid = mdp.terrain_mtx
     viz = StateVisualizer(tile_size=75, is_rendering_hud=False)
 
-    out_dir = os.path.join(os.path.dirname(__file__), "test_video_all10_frames")
+    out_dir = os.path.join(os.path.dirname(__file__), "output", "test_video_all10_frames")
     os.makedirs(out_dir, exist_ok=True)
 
     # Ingredient pickup plan:
@@ -167,7 +167,7 @@ def main():
     print(f"\nRendered {total_frames} frames to {out_dir}/")
 
     # Create video
-    video_path = os.path.join(os.path.dirname(__file__), "test_video_all10.mp4")
+    video_path = os.path.join(os.path.dirname(__file__), "output", "test_video_all10.mp4")
     print(f"\nCreating video: {video_path}")
     try:
         import imageio.v3 as iio
@@ -181,7 +181,7 @@ def main():
         print(f"Video creation failed: {e}")
 
     # Create GIF
-    gif_path = os.path.join(os.path.dirname(__file__), "test_video_all10.gif")
+    gif_path = os.path.join(os.path.dirname(__file__), "output", "test_video_all10.gif")
     print(f"Creating GIF: {gif_path}")
     try:
         import imageio.v3 as iio

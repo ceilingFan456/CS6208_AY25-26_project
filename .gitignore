@@ -9,6 +9,5 @@ secrets.sh
 ## dataset files
 data/
 
-datatest_video_all10_frames/
-test_video_frames/
-test_video_frames/
+## output frame directories (large, regenerable)
+output/*_frames/

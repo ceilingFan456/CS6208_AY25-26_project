@@ -44,7 +44,7 @@ def main():
     viz = StateVisualizer(tile_size=75, is_rendering_hud=False)
 
     # Output directory
-    out_dir = os.path.join(os.path.dirname(__file__), "test_video_frames")
+    out_dir = os.path.join(os.path.dirname(__file__), "output", "test_video_frames")
     os.makedirs(out_dir, exist_ok=True)
 
     # Player 2 always stays in place
@@ -183,7 +183,7 @@ def main():
     print(f"\nRendered {frame_idx + 1} frames to {out_dir}/")
 
     # Combine into video using imageio
-    video_path = os.path.join(os.path.dirname(__file__), "test_video.mp4")
+    video_path = os.path.join(os.path.dirname(__file__), "output", "test_video.mp4")
     print(f"\nCreating video: {video_path}")
     try:
         import imageio.v3 as iio
@@ -198,7 +198,7 @@ def main():
         print(f"Frames are available in {out_dir}/")
 
     # Also create a GIF
-    gif_path = os.path.join(os.path.dirname(__file__), "test_video.gif")
+    gif_path = os.path.join(os.path.dirname(__file__), "output", "test_video.gif")
     print(f"Creating GIF: {gif_path}")
     try:
         import imageio.v3 as iio
