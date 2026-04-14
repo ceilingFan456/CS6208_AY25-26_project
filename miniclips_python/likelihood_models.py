@@ -25,6 +25,14 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     AzureOpenAI = None  # type: ignore[assignment]
 
+try:
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+except ImportError:  # pragma: no cover - optional dependency
+    torch = None  # type: ignore[assignment]
+    AutoModelForCausalLM = None  # type: ignore[assignment]
+    AutoTokenizer = None  # type: ignore[assignment]
+
 COMMAND_EXAMPLES: List[Tuple[str, str]] = [
     ("get(apple)", "Can you get the apple?"),
     ("get(bread)", "Could you find some bread?"),
@@ -202,6 +210,42 @@ def azure_prompt_completion_log_likelihood(
     return total_logprob
 
 
+def local_prompt_completion_log_likelihood(
+    model: "AutoModelForCausalLM",
+    tokenizer: "AutoTokenizer",
+    prompt: str,
+    completion: str,
+) -> float:
+    """Compute log P(completion | prompt) using a local HuggingFace causal LM.
+
+    Tokenises prompt and prompt+completion, runs a single forward pass,
+    then sums the log-probabilities of every completion token conditioned
+    on all preceding tokens.
+    """
+
+    prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)
+    full_ids = tokenizer.encode(prompt + completion, add_special_tokens=False)
+    completion_start = len(prompt_ids)
+
+    if completion_start >= len(full_ids):
+        raise RuntimeError("Completion produced no extra tokens after the prompt.")
+
+    input_ids = torch.tensor([full_ids], device=model.device)
+    with torch.no_grad():
+        logits = model(input_ids).logits  # (1, seq_len, vocab)
+
+    # log-softmax over vocab dimension
+    log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+
+    total_logprob = 0.0
+    # For token at position t, logits[0, t-1] predicted it
+    for t in range(completion_start, len(full_ids)):
+        token_id = full_ids[t]
+        total_logprob += float(log_probs[0, t - 1, token_id])
+
+    return total_logprob
+
+
 def mixture_prompt_utterance_log_likelihood(
     observed_utterance: str,
     plan: Dict[str, List[str]],
@@ -222,6 +266,35 @@ def mixture_prompt_utterance_log_likelihood(
         lp = azure_prompt_completion_log_likelihood(
             client=client,
             deployment=deployment,
+            prompt=prompt,
+            completion=observed_utterance,
+        )
+        lps.append(lp)
+
+    max_lp = max(lps)
+    return max_lp + math.log(sum(math.exp(lp - max_lp) for lp in lps)) - math.log(len(lps))
+
+
+def mixture_prompt_utterance_log_likelihood_local(
+    observed_utterance: str,
+    plan: Dict[str, List[str]],
+    state: Set[str],
+    model: "AutoModelForCausalLM",
+    tokenizer: "AutoTokenizer",
+) -> float:
+    """Mixture log-likelihood using a local HuggingFace model."""
+
+    future_acts = get_future_actions(state, plan)
+    commands = enumerate_command_candidates(future_acts, max_actions_per_command=2)
+    if len(commands) == 0:
+        return -1e9
+
+    lps = []
+    for command in commands:
+        prompt = construct_utterance_prompt(command)
+        lp = local_prompt_completion_log_likelihood(
+            model=model,
+            tokenizer=tokenizer,
             prompt=prompt,
             completion=observed_utterance,
         )
@@ -266,6 +339,64 @@ def build_azure_utterance_likelihood_fn(
                 state=state,
                 client=client,
                 deployment=deployment,
+            )
+            cache[key] = max(math.exp(logp), 1e-300)
+        return float(cache[key])
+
+    return _likelihood
+
+
+def build_local_utterance_likelihood_fn(
+    model_name: str = "Qwen/Qwen3-0.6B",
+    device: str | None = None,
+    torch_dtype: str = "auto",
+) -> Callable[[str, str, Dict[str, List[str]], Set[str]], float]:
+    """Factory returning `P(utterance | goal, plan, state)` using a local model.
+
+    Parameters
+    ----------
+    model_name : str
+        HuggingFace model identifier.  Defaults to ``Qwen/Qwen3-0.6B``.
+    device : str | None
+        PyTorch device string (``"cuda"``, ``"cpu"``, …).  ``None`` picks CUDA
+        when available, else CPU.
+    torch_dtype : str
+        Data-type hint forwarded to ``from_pretrained``.
+    """
+
+    if torch is None or AutoModelForCausalLM is None:
+        raise ImportError(
+            "torch and transformers are required.  "
+            "Install with: pip install torch transformers"
+        )
+
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=torch_dtype,
+    ).to(device)
+    model.eval()
+
+    cache: Dict[Tuple[str, str, Tuple[str, ...]], float] = {}
+
+    def _likelihood(
+        observed_utterance: str,
+        goal_name: str,
+        plan: Dict[str, List[str]],
+        state: Set[str],
+    ) -> float:
+        state_key = tuple(sorted(state))
+        key = (observed_utterance, goal_name, state_key)
+        if key not in cache:
+            logp = mixture_prompt_utterance_log_likelihood_local(
+                observed_utterance=observed_utterance,
+                plan=plan,
+                state=state,
+                model=model,
+                tokenizer=tokenizer,
             )
             cache[key] = max(math.exp(logp), 1e-300)
         return float(cache[key])
@@ -326,5 +457,46 @@ def _test_prompt_loglikelihood() -> None:
         )
 
 
+def _test_local_prompt_loglikelihood() -> None:
+    """Smoke test using a local open-source model (e.g. Qwen3)."""
+
+    model_name = os.getenv("LOCAL_MODEL_NAME", "Qwen/Qwen3-0.6B")
+
+    if torch is None:
+        print("Skip local smoke test: torch not installed.")
+        return
+
+    print(f"Loading model {model_name} …")
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype="auto",
+        ).to("cuda" if torch.cuda.is_available() else "cpu")
+        model.eval()
+    except Exception as exc:
+        print(f"Could not load model: {exc}")
+        return
+
+    command = ["get(rice)", "get(onion)"]
+    observed_utterance = " Can you grab rice and onions?"
+    prompt = construct_utterance_prompt(command)
+
+    logp = local_prompt_completion_log_likelihood(
+        model=model,
+        tokenizer=tokenizer,
+        prompt=prompt,
+        completion=observed_utterance,
+    )
+    print("Pseudo prompt command:", command)
+    print("Observed utterance:", repr(observed_utterance))
+    print("log P(utterance | prompt):", logp)
+    print("P(utterance | prompt):", math.exp(logp))
+
+
 if __name__ == "__main__":
-    _test_prompt_loglikelihood()
+    import sys
+    if "--local" in sys.argv:
+        _test_local_prompt_loglikelihood()
+    else:
+        _test_prompt_loglikelihood()

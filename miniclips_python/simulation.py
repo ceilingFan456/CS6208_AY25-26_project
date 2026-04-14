@@ -17,7 +17,7 @@ import numpy as np
 
 from bayesian_inference import posterior_update
 from goal_model import GOALS, PLANS, PRIOR
-from likelihood_models import action_likelihood
+from likelihood_models import action_likelihood, build_local_utterance_likelihood_fn
 from utils import goal_prob_dict, rounded
 
 
@@ -134,6 +134,51 @@ def _test_notebook_action_examples() -> None:
     print("Posterior after 3 observations:", goal_prob_dict(GOALS, p2))
 
 
+def _test_utterance_examples() -> None:
+    """Test utterance + action inference using a local open-source model (Qwen3)."""
+
+    import os
+
+    model_name = os.getenv("LOCAL_MODEL_NAME", "Qwen/Qwen3-0.6B")
+    print(f"Loading local model {model_name} ...")
+    utterance_fn = build_local_utterance_likelihood_fn(model_name=model_name)
+    print("Model loaded.\n")
+
+    # --- Example 1: utterance only ---
+    # Notebook cell 41: utterance " Can you get the stuff in the frozen section?"
+    print("=== Example 1: utterance only ===")
+    obs1 = [
+        Observation("utterance", " Can you get the stuff in the frozen section?"),
+    ]
+    out1 = run_inference_loop(obs1, utterance_likelihood_fn=utterance_fn)
+    p1 = rounded(out1["posterior"], 3)
+    print("Posterior after utterance:", goal_prob_dict(GOALS, p1))
+    print()
+
+    # --- Example 2: utterance + action (notebook cell 37) ---
+    # " Can you grab a tomato?" then get(onion)
+    print("=== Example 2: utterance then action ===")
+    obs2 = [
+        Observation("utterance", " Can you grab a tomato?"),
+        Observation("act", "get(onion)"),
+    ]
+    out2 = run_inference_loop(obs2, utterance_likelihood_fn=utterance_fn)
+    p2 = rounded(out2["posterior"], 3)
+    print("Posterior after utterance + action:", goal_prob_dict(GOALS, p2))
+    print()
+
+    # --- Example 3: action then utterance (notebook cell 43) ---
+    # get(rice) then " Can you get the stuff in the frozen section?"
+    print("=== Example 3: action then utterance ===")
+    obs3 = [
+        Observation("act", "get(rice)"),
+        Observation("utterance", " Can you get the stuff in the frozen section?"),
+    ]
+    out3 = run_inference_loop(obs3, utterance_likelihood_fn=utterance_fn)
+    p3 = rounded(out3["posterior"], 3)
+    print("Posterior after action + utterance:", goal_prob_dict(GOALS, p3))
+
+
 def main() -> None:
     ## Standalone example run.
     
@@ -142,4 +187,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--utterance" in sys.argv:
+        _test_utterance_examples()
+    else:
+        main()
