@@ -1,0 +1,125 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading model Qwen/Qwen3-0.6B ...
+Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]Loading weights: 100%|██████████| 311/311 [00:00<00:00, 7449.83it/s]
+Model loaded.
+
+================================================================================
+TEST: Unlikely utterances should have HIGHER entropy (more uncertain)
+      over the command posterior P(c | u, pi, g)
+================================================================================
+
+Goal: greek_salad  (num commands = 21, max entropy = 3.045)
+  Likely: ' Get the olives and cucumber.'
+    entropy = 0.085  (normalized = 0.028)
+    top-5 commands:
+      0.9856  get(cucumber) get(olives)
+      0.0118  get(olives) get(tomato)
+      0.0018  get(olives)
+      0.0003  get(onion) get(cucumber)
+      0.0003  get(feta_cheese) get(cucumber)
+
+  Unlikely: " Let's get some soap."
+    entropy = 2.101  (normalized = 0.690)  [PASS] diff = +2.017
+    top-5 commands:
+      0.2954  get(onion) checkout()
+      0.1919  get(feta_cheese) checkout()
+      0.1596  get(tomato) checkout()
+      0.1337  get(cucumber) checkout()
+      0.0351  get(onion) get(tomato)
+
+  Unlikely: ' I need to buy a new laptop.'
+    entropy = 1.285  (normalized = 0.422)  [PASS] diff = +1.200
+    top-5 commands:
+      0.6820  checkout()
+      0.0930  get(tomato) checkout()
+      0.0536  get(cucumber) checkout()
+      0.0452  get(tomato)
+      0.0369  get(onion) checkout()
+
+Goal: veggie_burger  (num commands = 21, max entropy = 3.045)
+  Likely: ' Can you get me the hamburger bun?'
+    entropy = 0.813  (normalized = 0.267)
+    top-5 commands:
+      0.6524  get(hamburger_bun)
+      0.3028  get(hamburger_bun) checkout()
+      0.0242  get(tomato) get(hamburger_bun)
+      0.0200  get(hamburger_bun) get(frozen_patty)
+      0.0006  get(onion) get(hamburger_bun)
+
+  Unlikely: " Let's get some soap."
+    entropy = 1.508  (normalized = 0.495)  [PASS] diff = +0.695
+    top-5 commands:
+      0.5022  get(onion) checkout()
+      0.2714  get(tomato) checkout()
+      0.0597  get(onion) get(tomato)
+      0.0403  get(lettuce) get(tomato)
+      0.0364  get(onion)
+
+  Unlikely: ' I need to buy a new laptop.'
+    entropy = 1.544  (normalized = 0.507)  [PASS] diff = +0.731
+    top-5 commands:
+      0.6306  checkout()
+      0.0860  get(tomato) checkout()
+      0.0542  get(tomato) get(hamburger_bun)
+      0.0418  get(tomato)
+      0.0399  get(tomato) get(frozen_patty)
+
+Goal: fried_rice  (num commands = 21, max entropy = 3.045)
+  Likely: ' We need soy sauce and onions.'
+    entropy = 0.009  (normalized = 0.003)
+    top-5 commands:
+      0.9990  get(soy_sauce) get(onion)
+      0.0006  get(soy_sauce) get(frozen_carrots)
+      0.0002  get(soy_sauce)
+      0.0001  get(onion) checkout()
+      0.0001  get(soy_sauce) get(frozen_peas)
+
+  Unlikely: " Let's get some soap."
+    entropy = 1.023  (normalized = 0.336)  [PASS] diff = +1.014
+    top-5 commands:
+      0.7504  get(soy_sauce) checkout()
+      0.0968  get(onion) checkout()
+      0.0438  get(soy_sauce)
+      0.0390  get(soy_sauce) get(onion)
+      0.0239  get(frozen_peas) checkout()
+
+  Unlikely: ' I need to buy a new laptop.'
+    entropy = 0.376  (normalized = 0.123)  [PASS] diff = +0.366
+    top-5 commands:
+      0.9186  checkout()
+      0.0496  get(onion) checkout()
+      0.0222  get(onion)
+      0.0020  get(onion) get(rice)
+      0.0019  get(onion) get(frozen_carrots)
+
+Goal: burrito_bowl  (num commands = 21, max entropy = 3.045)
+  Likely: ' Could you grab the black beans?'
+    entropy = 0.652  (normalized = 0.214)
+    top-5 commands:
+      0.7483  get(black_beans) checkout()
+      0.2274  get(black_beans)
+      0.0225  get(black_beans) get(rice)
+      0.0014  get(cotija_cheese) get(black_beans)
+      0.0004  get(tomato) get(black_beans)
+
+  Unlikely: " Let's get some soap."
+    entropy = 1.236  (normalized = 0.406)  [PASS] diff = +0.584
+    top-5 commands:
+      0.6922  get(cotija_cheese) checkout()
+      0.0914  get(onion) checkout()
+      0.0686  get(black_beans) checkout()
+      0.0494  get(tomato) checkout()
+      0.0343  get(cotija_cheese)
+
+  Unlikely: ' I need to buy a new laptop.'
+    entropy = 1.016  (normalized = 0.334)  [PASS] diff = +0.364
+    top-5 commands:
+      0.7399  checkout()
+      0.1009  get(tomato) checkout()
+      0.0491  get(tomato)
+      0.0400  get(onion) checkout()
+      0.0394  get(tomato) get(cotija_cheese)
+
+================================================================================
+ALL TESTS PASSED: Unlikely utterances produce higher-entropy (more uncertain) command distributions.
+================================================================================

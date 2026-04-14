@@ -5,3 +5,8 @@ __pycache__/
 
 ## contains api key
 secrets.sh
+
+## dataset files
+data/
+
+data

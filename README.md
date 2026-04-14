@@ -50,7 +50,7 @@ where $C$ enumerates subsets (size 1–2) of future actions, and each prompt is 
 
 Two backends are supported:
 
-| | Azure OpenAI | Local (Qwen3) |
+| | Azure OpenAI (not working caz of model restriction) | Local (Qwen3) |
 |---|---|---|
 | Scoring method | Completions API with `echo=True` + logprobs | Forward pass + log-softmax |
 | Default model | `gpt-4.1` | `Qwen/Qwen3-0.6B` |

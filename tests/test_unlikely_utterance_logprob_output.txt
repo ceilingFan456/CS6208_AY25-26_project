@@ -1,0 +1,62 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading model Qwen/Qwen3-0.6B ...
+Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]Loading weights: 100%|██████████| 311/311 [00:00<00:00, 7609.81it/s]
+Model loaded.
+
+================================================================================
+TEST: Likely utterances should have HIGHER log-prob than unlikely ones
+================================================================================
+
+Goal: greek_salad
+  Likely:   ' Get the olives and cucumber.'                          log P = -17.808
+  Unlikely: " Let's get some soap."                                  log P = -22.016  [PASS] diff = +4.208
+  Unlikely: ' I need to buy a new laptop.'                           log P = -34.900  [PASS] diff = +17.092
+  Unlikely: ' Can you find the dog food?'                            log P = -30.632  [PASS] diff = +12.824
+  Unlikely: ' We should pick up some shampoo.'                       log P = -39.867  [PASS] diff = +22.059
+
+Goal: veggie_burger
+  Likely:   ' Can you get me the hamburger bun?'                     log P = -16.858
+  Unlikely: " Let's get some soap."                                  log P = -22.547  [PASS] diff = +5.689
+  Unlikely: ' I need to buy a new laptop.'                           log P = -34.822  [PASS] diff = +17.964
+  Unlikely: ' Can you find the dog food?'                            log P = -30.205  [PASS] diff = +13.347
+  Unlikely: ' We should pick up some shampoo.'                       log P = -40.240  [PASS] diff = +23.382
+
+Goal: fried_rice
+  Likely:   ' We need soy sauce and onions.'                         log P = -16.360
+  Unlikely: " Let's get some soap."                                  log P = -20.900  [PASS] diff = +4.540
+  Unlikely: ' I need to buy a new laptop.'                           log P = -35.198  [PASS] diff = +18.838
+  Unlikely: ' Can you find the dog food?'                            log P = -33.273  [PASS] diff = +16.913
+  Unlikely: ' We should pick up some shampoo.'                       log P = -40.396  [PASS] diff = +24.036
+
+Goal: burrito_bowl
+  Likely:   ' Could you grab the black beans?'                       log P = -18.610
+  Unlikely: " Let's get some soap."                                  log P = -20.842  [PASS] diff = +2.232
+  Unlikely: ' I need to buy a new laptop.'                           log P = -34.981  [PASS] diff = +16.371
+  Unlikely: ' Can you find the dog food?'                            log P = -30.313  [PASS] diff = +11.703
+  Unlikely: ' We should pick up some shampoo.'                       log P = -40.510  [PASS] diff = +21.900
+
+================================================================================
+
+TEST: Per-command log P(u|prompt) for likely vs unlikely utterances
+================================================================================
+
+Goal: fried_rice
+  Likely utterance:   ' We need soy sauce and onions.'
+  Unlikely utterance: " Let's get some soap."
+
+  Command                                              logP(likely) logP(unlikely)       diff
+  --------------------------------------------------------------------------------------------
+  get(soy_sauce)                                            -21.762        -20.982     -0.779
+  get(onion)                                                -24.107        -22.814     -1.293
+  get(rice)                                                 -37.695        -28.379     -9.316
+  get(frozen_carrots)                                       -33.203        -26.491     -6.712
+  get(frozen_peas)                                          -36.219        -24.817    -11.402
+  checkout()                                                -32.309        -23.637     -8.672
+  get(soy_sauce) get(onion)                                 -13.316        -21.099     +7.782
+  get(soy_sauce) get(rice)                                  -26.866        -25.448     -1.417
+  get(soy_sauce) get(frozen_carrots)                        -20.715        -23.452     +2.737
+  get(soy_sauce) get(frozen_peas)                           -22.978        -21.782     -1.196
+
+================================================================================
+ALL TESTS PASSED: Likely utterances consistently score higher.
+================================================================================

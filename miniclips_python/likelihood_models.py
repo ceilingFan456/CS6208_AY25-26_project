@@ -457,6 +457,37 @@ def _test_prompt_loglikelihood() -> None:
         )
 
 
+def local_generate_utterance(
+    model: "AutoModelForCausalLM",
+    tokenizer: "AutoTokenizer",
+    command: Sequence[str],
+    max_new_tokens: int = 64,
+    temperature: float = 0.7,
+) -> str:
+    """Generate a natural-language utterance from a command using a local model.
+
+    Constructs the few-shot prompt for the given command, then samples a
+    completion (up to the first newline or ``max_new_tokens``).
+    """
+
+    prompt = construct_utterance_prompt(command)
+    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(model.device)
+    with torch.no_grad():
+        output_ids = model.generate(
+            input_ids,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            do_sample=temperature > 0,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+    # Decode only the generated tokens
+    generated_ids = output_ids[0, input_ids.shape[1]:]
+    utterance = tokenizer.decode(generated_ids, skip_special_tokens=True)
+    # Stop at first newline (matching the notebook's stop="\n")
+    utterance = utterance.split("\n")[0]
+    return utterance
+
+
 def _test_local_prompt_loglikelihood() -> None:
     """Smoke test using a local open-source model (e.g. Qwen3)."""
 
@@ -494,9 +525,88 @@ def _test_local_prompt_loglikelihood() -> None:
     print("P(utterance | prompt):", math.exp(logp))
 
 
+def _test_local_generation() -> None:
+    """Test utterance generation from commands using a local model."""
+
+    from goal_model import GOALS, PLANS
+
+    model_name = os.getenv("LOCAL_MODEL_NAME", "Qwen/Qwen3-0.6B")
+
+    if torch is None:
+        print("Skip generation test: torch not installed.")
+        return
+
+    print(f"Loading model {model_name} …")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name, torch_dtype="auto",
+    ).to("cuda" if torch.cuda.is_available() else "cpu")
+    model.eval()
+    print("Model loaded.\n")
+
+    # --- Test 1: single-action commands ---
+    print("=== Single-action commands ===")
+    single_commands = [
+        ["get(tomato)"],
+        ["get(rice)"],
+        ["get(frozen_patty)"],
+        ["checkout()"],
+    ]
+    for cmd in single_commands:
+        utt = local_generate_utterance(model, tokenizer, cmd)
+        print(f"  {' '.join(cmd):30s} -> {utt!r}")
+    print()
+
+    # --- Test 2: multi-action commands ---
+    print("=== Multi-action commands ===")
+    multi_commands = [
+        ["get(rice)", "get(onion)"],
+        ["get(frozen_peas)", "get(frozen_carrots)"],
+        ["get(tomato)", "checkout()"],
+        ["get(olives)", "get(cucumber)"],
+    ]
+    for cmd in multi_commands:
+        utt = local_generate_utterance(model, tokenizer, cmd)
+        print(f"  {' '.join(cmd):50s} -> {utt!r}")
+    print()
+
+    # --- Test 3: goal-conditioned generation ---
+    # For each goal, generate utterances from the future actions at empty state
+    print("=== Goal-conditioned utterances (empty state) ===")
+    for goal in GOALS:
+        plan = PLANS[goal]
+        state: Set[str] = set()
+        future_acts = get_future_actions(state, plan)
+        commands = enumerate_command_candidates(future_acts, max_actions_per_command=2)
+        # Pick a few representative commands
+        sample_cmds = commands[:3]
+        print(f"\n  Goal: {goal}")
+        for cmd in sample_cmds:
+            utt = local_generate_utterance(model, tokenizer, cmd)
+            print(f"    {' '.join(cmd):50s} -> {utt!r}")
+
+    # --- Test 4: generation + scoring round-trip ---
+    print("\n=== Generation + scoring round-trip ===")
+    test_commands = [
+        ["get(rice)", "get(onion)"],
+        ["get(tomato)"],
+        ["get(frozen_peas)", "get(frozen_carrots)"],
+    ]
+    for cmd in test_commands:
+        utt = local_generate_utterance(model, tokenizer, cmd, temperature=0.0)
+        prompt = construct_utterance_prompt(cmd)
+        logp = local_prompt_completion_log_likelihood(model, tokenizer, prompt, utt)
+        print(f"  cmd={' '.join(cmd)}")
+        print(f"    generated: {utt!r}")
+        print(f"    log P(utterance|prompt) = {logp:.2f}")
+        print()
+
+
 if __name__ == "__main__":
     import sys
     if "--local" in sys.argv:
         _test_local_prompt_loglikelihood()
+    elif "--generate" in sys.argv:
+        _test_local_generation()
     else:
         _test_prompt_loglikelihood()
