@@ -413,11 +413,13 @@ def render_posterior_plot(timesteps, posterior_history, current_step,
     ax.grid(True, alpha=0.3)
     ax.axhline(y=0.25, color="gray", linestyle="--", alpha=0.4)
 
-    # Mark current step
+    # Mark current step (offset circles vertically so overlapping values are visible)
     if current_step < len(posterior_history):
+        offsets = [-0.03, -0.01, 0.01, 0.03]  # spread 4 goals apart
         for goal_idx in range(n_goals):
             y = posterior_history[current_step][goal_idx]
-            ax.plot(current_step, y, "o", color=RECIPE_COLORS[goal_idx],
+            ax.plot(current_step, y + offsets[goal_idx], "o",
+                    color=RECIPE_COLORS[goal_idx],
                     markersize=7, zorder=5)
 
     fig.tight_layout()
@@ -471,24 +473,49 @@ def main():
     parser = argparse.ArgumentParser(description="Four-goal Overcooked inference video")
     parser.add_argument("--use-qwen", action="store_true",
                         help="Use Qwen3-VL for vision-based likelihood estimation")
-    parser.add_argument("--model", type=str, default="Qwen/Qwen3-VL-4B-Instruct",
+    parser.add_argument("--use-clip", action="store_true",
+                        help="Use CLIP for vision-based action classification")
+    parser.add_argument("--model", type=str, default="Qwen/Qwen3-VL-2B-Instruct",
                         help="Qwen3-VL model name")
+    parser.add_argument("--clip-model", type=str, default="openai/clip-vit-base-patch32",
+                        help="CLIP model name (default: openai/clip-vit-base-patch32)")
+    parser.add_argument("--clip-temperature", type=float, default=0.5,
+                        help="CLIP softmax temperature (default: 0.5)")
     parser.add_argument("--qwen-interval", type=int, default=3,
                         help="Query Qwen every N steps (default: 3)")
     parser.add_argument("--fps", type=int, default=3,
                         help="Video frame rate (default: 3)")
     parser.add_argument("--output", type=str, default=None,
                         help="Output video path (default: auto)")
+    parser.add_argument("--debug", action="store_true",
+                        help="Save Qwen queries and input images for debugging")
     args = parser.parse_args()
 
     # Output paths
-    suffix = "_qwen" if args.use_qwen else "_symbolic"
+    if args.use_clip:
+        suffix = "_clip"
+    elif args.use_qwen:
+        suffix = "_qwen"
+    else:
+        suffix = "_symbolic"
     if args.output:
         video_path = args.output
     else:
         video_path = os.path.join(_this_dir, "output", f"four_goals_video{suffix}.mp4")
     frames_dir = os.path.join(_this_dir, "output", "four_goals_frames")
     os.makedirs(frames_dir, exist_ok=True)
+
+    # ── Debug directory setup ──
+    debug_dir = None
+    qwen_query_count = 0
+    if args.debug:
+        debug_base = os.path.join(_this_dir, "output", "debugging")
+        os.makedirs(debug_base, exist_ok=True)
+        existing = [d for d in os.listdir(debug_base) if d.isdigit()]
+        run_idx = max((int(d) for d in existing), default=0) + 1
+        debug_dir = os.path.join(debug_base, str(run_idx))
+        os.makedirs(debug_dir, exist_ok=True)
+        print(f"Debug output will be saved to: {debug_dir}")
 
     # ── Set up Overcooked ──
     print("Setting up Overcooked environment (four_goals layout)...")
@@ -513,16 +540,32 @@ def main():
     if args.use_qwen:
         qwen_model, qwen_processor = load_qwen_vl_model(args.model)
 
+    # ── Load CLIP if requested ──
+    clip_engine = None
+    if args.use_clip:
+        from clip_likelihood import CLIPRecipeInference
+        clip_engine = CLIPRecipeInference(
+            recipe_names=goals,
+            plans=plans,
+            model_name=args.clip_model,
+            temperature=args.clip_temperature,
+        )
+
     # ── Inference state ──
     sym_posterior = prior.copy()
     qwen_posterior = prior.copy()
+    clip_posterior = prior.copy()
     sym_states = {g: set() for g in goals}
 
     sym_history = [sym_posterior.tolist()]
     qwen_history = [qwen_posterior.tolist()]
+    clip_history = [clip_posterior.tolist()]
     game_frames_pil = []
     qwen_action_frames = []  # frames at action steps only, for Qwen
     action_labels = []
+    # Track frame indices: action frames vs moving frames for Qwen downsampling
+    action_frame_indices = set()  # indices in game_frames_pil that are action frames
+    moving_runs = []  # list of (start_idx, end_idx) for consecutive moving frames
 
     # Render initial frame
     surface = viz.render_state(state, grid)
@@ -561,6 +604,17 @@ def main():
         label = action_str.upper().replace("_", " ") if action_str else "moving..."
         action_labels.append(label)
 
+        # Track action vs moving frames (frame index = step+1 because of initial frame)
+        frame_idx = step + 1
+        if action_str is not None:
+            action_frame_indices.add(frame_idx)
+        else:
+            # Extend or start a new moving run
+            if moving_runs and moving_runs[-1][1] == frame_idx - 1:
+                moving_runs[-1] = (moving_runs[-1][0], frame_idx)
+            else:
+                moving_runs.append((frame_idx, frame_idx))
+
         # ── Symbolic posterior update ──
         if action_str is not None:
             sym_lik = symbolic_likelihood_for_action(
@@ -570,26 +624,62 @@ def main():
             update_symbolic_states(action_str, goals, plans, sym_states)
         sym_history.append(sym_posterior.tolist())
 
-        # ── Qwen-VL posterior update ──
-        if args.use_qwen and qwen_model is not None:
-            if action_str is not None:
-                # Pass all history frames (one per step) to Qwen
-                frames_for_qwen = game_frames_pil[:]
-                print(f"  Step {step:2d}: Querying Qwen-VL with {len(frames_for_qwen)} frames...", end=" ")
-                try:
-                    response = query_qwen_vl(qwen_model, qwen_processor, frames_for_qwen)
-                    parsed = parse_qwen_response(response)
-                    if parsed is not None:
-                        qwen_posterior = np.array(parsed)
-                        print(f"→ A:{parsed[0]:.2f} B:{parsed[1]:.2f} C:{parsed[2]:.2f} D:{parsed[3]:.2f}")
-                    else:
-                        print(f"→ parse failed. Raw: {response[:100]}")
-                except Exception as e:
-                    print(f"→ Qwen error: {e}")
-        else:
-            # Without Qwen, mirror the symbolic posterior as placeholder
+        # ── Qwen-VL posterior update (only on add_to_pot events) ──
+        is_pot_action = action_str is not None and action_str.startswith("add_to_pot")
+        if args.use_qwen and qwen_model is not None and is_pot_action:
+            # Build downsampled frame list: action frames + middle of each moving run
+            keep_indices = set(action_frame_indices)
+            keep_indices.add(0)  # always keep initial frame
+            for run_start, run_end in moving_runs:
+                mid = (run_start + run_end) // 2
+                keep_indices.add(mid)
+            sorted_indices = sorted(keep_indices & set(range(len(game_frames_pil))))
+            # Cap at last 20 frames if too many
+            if len(sorted_indices) > 20:
+                sorted_indices = sorted_indices[-20:]
+            frames_for_qwen = [game_frames_pil[j] for j in sorted_indices]
+            print(f"  Step {step:2d}: Querying Qwen-VL with {len(frames_for_qwen)} frames (downsampled from {len(game_frames_pil)})...", end=" ")
+            try:
+                response = query_qwen_vl(qwen_model, qwen_processor, frames_for_qwen)
+                parsed = parse_qwen_response(response)
+                if parsed is not None:
+                    qwen_posterior = np.array(parsed)
+                    print(f"→ A:{parsed[0]:.2f} B:{parsed[1]:.2f} C:{parsed[2]:.2f} D:{parsed[3]:.2f}")
+                else:
+                    print(f"→ parse failed. Raw: {response[:100]}")
+
+                # ── Save debug info ──
+                if debug_dir is not None:
+                    qwen_query_count += 1
+                    step_dir = os.path.join(debug_dir, f"step_{step:03d}")
+                    img_dir = os.path.join(step_dir, "images")
+                    os.makedirs(img_dir, exist_ok=True)
+                    for fi, frame in enumerate(frames_for_qwen):
+                        frame.save(os.path.join(img_dir, f"{fi:03d}.png"))
+                    with open(os.path.join(step_dir, "query.txt"), "w") as f:
+                        f.write(f"=== Qwen Query (step {step}, query #{qwen_query_count}) ===\n")
+                        f.write(f"Action: {action_str}\n")
+                        f.write(f"Frames sent: {len(frames_for_qwen)} (indices: {sorted_indices})\n")
+                        f.write(f"\n=== Prompt ===\n{QWEN_PROMPT}\n")
+                        f.write(f"\n=== Response ===\n{response}\n")
+                        f.write(f"\n=== Parsed ===\n{parsed}\n")
+            except Exception as e:
+                print(f"→ Qwen error: {e}")
+        elif not (args.use_qwen and qwen_model is not None):
+            # Without Qwen, mirror uniform prior as placeholder
             qwen_posterior = prior.copy()
         qwen_history.append(qwen_posterior.tolist())
+
+        # ── CLIP posterior update (every frame) ──
+        if args.use_clip and clip_engine is not None:
+            clip_posterior = clip_engine.observe_frame(frame_img)
+            # Notify CLIP engine of completed actions (updates plan state)
+            if action_str is not None:
+                clip_engine.observe_action(action_str)
+                top_actions = clip_engine.get_top_actions(3)
+                top_str = ", ".join(f"{a}:{v:.2f}" for a, v in top_actions)
+                print(f"  Step {step:2d}: CLIP top actions: {top_str}")
+        clip_history.append(clip_posterior.tolist())
 
         # Log
         sparse_rew = sum(infos.get("sparse_reward_by_agent", [0, 0]))
@@ -601,21 +691,30 @@ def main():
 
     # ── Compose video frames ──
     print(f"\n--- Composing {len(game_frames_pil)} frames ---")
-    all_timesteps = list(range(max(len(sym_history), len(qwen_history))))
+    all_timesteps = list(range(max(len(sym_history), len(qwen_history), len(clip_history))))
     composed_frames = []
 
+    gt_name = RECIPE_NAMES[GROUND_TRUTH_IDX]
     for i in range(len(game_frames_pil)):
         sym_plot = render_posterior_plot(
             all_timesteps, sym_history[:i + 1], i,
-            title="Symbolic (Miniclip Actions)",
+            title=f"Symbolic (Miniclip Actions)\nGoal: {gt_name}",
         )
-        qwen_title = "Qwen3-VL (Vision)" if args.use_qwen else "Qwen3-VL (not enabled)"
-        qwen_plot = render_posterior_plot(
-            all_timesteps, qwen_history[:i + 1], i,
-            title=qwen_title,
+        if args.use_clip:
+            right_title = "CLIP (Vision)"
+            right_history = clip_history
+        elif args.use_qwen:
+            right_title = "Qwen3-VL (Vision)"
+            right_history = qwen_history
+        else:
+            right_title = "Qwen3-VL (not enabled)"
+            right_history = qwen_history
+        right_plot = render_posterior_plot(
+            all_timesteps, right_history[:i + 1], i,
+            title=f"{right_title}\nGoal: {gt_name}",
         )
         label = action_labels[i] if i < len(action_labels) else ""
-        composed = compose_frame(game_frames_pil[i], sym_plot, qwen_plot, label, i)
+        composed = compose_frame(game_frames_pil[i], sym_plot, right_plot, label, i)
         composed_frames.append(composed)
         composed.save(os.path.join(frames_dir, f"frame_{i:04d}.png"))
 

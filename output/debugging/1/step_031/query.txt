@@ -1,0 +1,48 @@
+=== Qwen Query (step 31, query #2) ===
+Action: add_to_pot(onion)
+Frames sent: 9 (indices: [0, 4, 8, 10, 12, 17, 22, 27, 32])
+
+=== Prompt ===
+You are watching a cooperative cooking game from a top-down view. Two chefs (blue hat and green hat) are in a kitchen with ingredient dispensers on the walls. The blue-hat chef (Player 1) is trying to make one of four possible soups. Each soup requires exactly 5 ingredients picked up from dispensers and added to a pot.
+
+The four candidate goals and their recipes are:
+
+Recipe A - "Greek Salad Soup":
+  Ingredients: tomato, olive, cucumber, onion, feta cheese
+  (Player picks from: Tomato dispenser on top wall, Olive dispenser on left wall, Cucumber dispenser on top wall, Onion dispenser on top wall, Feta Cheese dispenser on left wall)
+
+Recipe B - "Veggie Burger Soup":
+  Ingredients: hamburger bun, tomato, onion, cucumber, frozen carrots
+  (Player picks from: Hamburger Bun dispenser on right wall, Tomato on top wall, Onion on top wall, Cucumber on top wall, Frozen Carrots on bottom wall)
+
+Recipe C - "Fried Rice Soup":
+  Ingredients: rice, onion, soy sauce, frozen peas, frozen carrots
+  (Player picks from: Rice dispenser on top wall, Onion on top wall, Soy Sauce on right wall, Frozen Peas on bottom wall, Frozen Carrots on bottom wall)
+
+Recipe D - "Burrito Bowl Soup":
+  Ingredients: rice, olive, feta cheese, onion, tomato
+  (Player picks from: Rice on top wall, Olive on left wall, Feta Cheese on left wall, Onion on top wall, Tomato on top wall)
+
+Kitchen layout:
+- Top wall (left to right): Onion (white bulb), Tomato (red), Cucumber (green), Rice (white grains)
+- Left wall (top to bottom): Olive (purple/dark), Feta Cheese (yellow block)
+- Right wall (top to bottom): Hamburger Bun (brown), Soy Sauce (dark bottle)
+- Bottom wall: Dish dispenser, Frozen Peas (green bag), Frozen Carrots (orange bag), Serving window
+- Top right corner: Cooking pot
+
+I'm showing you the last several frames of the game in chronological order. Observe which dispensers the blue-hat player visits, which ingredients they pick up, and which items they add to the pot. Based on these observations, estimate the probability that they are making each recipe.
+
+Answer ONLY in this exact format (numbers must sum to 1.0):
+Recipe A: <probability>
+Recipe B: <probability>
+Recipe C: <probability>
+Recipe D: <probability>
+
+=== Response ===
+Recipe A: 0.2
+Recipe B: 0.1
+Recipe C: 0.1
+Recipe D: 0.6
+
+=== Parsed ===
+[0.2, 0.1, 0.1, 0.6]
