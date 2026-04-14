@@ -475,6 +475,10 @@ def main():
                         help="Use Qwen3-VL for vision-based likelihood estimation")
     parser.add_argument("--use-clip", action="store_true",
                         help="Use CLIP for vision-based action classification")
+    parser.add_argument("--use-dummy-clip", action="store_true",
+                        help="Use dummy (ideal) CLIP with hardcoded 0.8 diagonal accuracy")
+    parser.add_argument("--dummy-clip-diag", type=float, default=0.8,
+                        help="Diagonal probability for dummy CLIP (default: 0.8)")
     parser.add_argument("--model", type=str, default="Qwen/Qwen3-VL-2B-Instruct",
                         help="Qwen3-VL model name")
     parser.add_argument("--clip-model", type=str, default="openai/clip-vit-base-patch32",
@@ -492,7 +496,9 @@ def main():
     args = parser.parse_args()
 
     # Output paths
-    if args.use_clip:
+    if args.use_dummy_clip:
+        suffix = "_dummy_clip"
+    elif args.use_clip:
         suffix = "_clip"
     elif args.use_qwen:
         suffix = "_qwen"
@@ -542,6 +548,7 @@ def main():
 
     # ── Load CLIP if requested ──
     clip_engine = None
+    dummy_clip_engine = None
     if args.use_clip:
         from clip_likelihood import CLIPRecipeInference
         clip_engine = CLIPRecipeInference(
@@ -549,6 +556,13 @@ def main():
             plans=plans,
             model_name=args.clip_model,
             temperature=args.clip_temperature,
+        )
+    if args.use_dummy_clip:
+        from clip_likelihood import DummyCLIPRecipeInference
+        dummy_clip_engine = DummyCLIPRecipeInference(
+            recipe_names=goals,
+            plans=plans,
+            diag_prob=args.dummy_clip_diag,
         )
 
     # ── Inference state ──
@@ -679,6 +693,14 @@ def main():
                 top_actions = clip_engine.get_top_actions(3)
                 top_str = ", ".join(f"{a}:{v:.2f}" for a, v in top_actions)
                 print(f"  Step {step:2d}: CLIP top actions: {top_str}")
+
+        # ── Dummy CLIP posterior update (every frame) ──
+        if args.use_dummy_clip and dummy_clip_engine is not None:
+            dummy_clip_engine.set_current_action(action_str)
+            clip_posterior = dummy_clip_engine.observe_frame()
+            if action_str is not None:
+                dummy_clip_engine.observe_action(action_str)
+
         clip_history.append(clip_posterior.tolist())
 
         # Log
@@ -700,7 +722,10 @@ def main():
             all_timesteps, sym_history[:i + 1], i,
             title=f"Symbolic (Miniclip Actions)\nGoal: {gt_name}",
         )
-        if args.use_clip:
+        if args.use_dummy_clip:
+            right_title = f"Dummy CLIP (diag={args.dummy_clip_diag})"
+            right_history = clip_history
+        elif args.use_clip:
             right_title = "CLIP (Vision)"
             right_history = clip_history
         elif args.use_qwen:

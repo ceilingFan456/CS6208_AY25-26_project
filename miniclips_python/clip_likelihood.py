@@ -241,7 +241,13 @@ def _get_planned_actions_for_clip(
         if act in state:
             continue
         if all(dep in state for dep in plan[act]):
-            base = act.rsplit("_", 1)[0] if "_" in act else act
+            # Strip trailing _N suffix only if N is a digit (numbered plan actions)
+            # e.g. pick_up(rice)_1 → pick_up(rice), but start_cooking stays start_cooking
+            parts = act.rsplit("_", 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                base = parts[0]
+            else:
+                base = act
             # Avoid duplicates (e.g. pick_up(onion)_1 and pick_up(onion)_2)
             if base not in planned:
                 planned.append(base)
@@ -488,3 +494,113 @@ class CLIPRecipeInference:
             self.action_log_probs.items(), key=lambda x: x[1], reverse=True
         )
         return sorted_actions[:n]
+
+
+class DummyCLIPRecipeInference:
+    """Simulated 'ideal CLIP' inference engine for optimistic experiments.
+
+    Instead of running CLIP on frames, uses a hardcoded action probability
+    table: the true action gets `diag_prob` (default 0.8) and the remaining
+    probability is spread uniformly over all other actions.
+
+    This shows what Bayesian action marginalization would achieve if the
+    frame-level action classifier were highly accurate.
+    """
+
+    def __init__(
+        self,
+        recipe_names: List[str],
+        plans: Dict[str, Dict[str, List[str]]],
+        diag_prob: float = 0.8,
+        act_noise: float = 0.05,
+    ):
+        self.recipe_names = recipe_names
+        self.plans = plans
+        self.n_recipes = len(recipe_names)
+        self.diag_prob = diag_prob
+        self.act_noise = act_noise
+
+        self.posterior = np.ones(self.n_recipes) / self.n_recipes
+        self.posterior_history: List[np.ndarray] = [self.posterior.copy()]
+        self.frame_count = 0
+
+        # Per-goal completed-action sets
+        self.states: Dict[str, Set[str]] = {g: set() for g in self.recipe_names}
+
+        # Track the current true action (set externally before observe_frame)
+        self._current_action: Optional[str] = None
+
+    def reset(self):
+        """Reset inference state."""
+        self.posterior = np.ones(self.n_recipes) / self.n_recipes
+        self.posterior_history = [self.posterior.copy()]
+        self.frame_count = 0
+        self.states = {g: set() for g in self.recipe_names}
+        self._current_action = None
+
+    def set_current_action(self, action_str: Optional[str]):
+        """Set the true action for the current frame (called before observe_frame)."""
+        self._current_action = action_str
+
+    def _build_dummy_action_probs(self) -> Dict[str, float]:
+        """Build hardcoded P(action | frame) based on the true action.
+
+        If the true action is in CLIP_ACTION_KEYS, it gets diag_prob and the
+        rest share (1 - diag_prob) uniformly.
+        If no action (moving frame), 'moving' gets diag_prob.
+        """
+        n = len(CLIP_ACTION_KEYS)
+        off_diag = (1.0 - self.diag_prob) / (n - 1)
+
+        probs = {key: off_diag for key in CLIP_ACTION_KEYS}
+
+        true_action = self._current_action
+        if true_action is None or true_action not in CLIP_ACTION_KEYS:
+            # Moving frame — assign high prob to "moving"
+            probs["moving"] = self.diag_prob
+        else:
+            probs[true_action] = self.diag_prob
+
+        return probs
+
+    def observe_action(self, action_str: str):
+        """Update per-goal plan states after an observed action."""
+        if action_str is None:
+            return
+        for goal in self.recipe_names:
+            plan = self.plans[goal]
+            for plan_act in plan:
+                if plan_act in self.states[goal]:
+                    continue
+                base = plan_act.rsplit("_", 1)[0] if "_" in plan_act else plan_act
+                if base == action_str or plan_act == action_str:
+                    self.states[goal].add(plan_act)
+                    break
+
+    def observe_frame(self, image=None) -> np.ndarray:
+        """Process one frame using hardcoded action probs and return updated posterior.
+
+        The `image` argument is accepted for interface compatibility but ignored.
+        Call set_current_action() before this to set the true action.
+        """
+        action_probs = self._build_dummy_action_probs()
+
+        likelihood = clip_action_marginalization_likelihood(
+            action_probs,
+            self.recipe_names,
+            self.plans,
+            self.states,
+            self.act_noise,
+        )
+
+        unnormalized = self.posterior * likelihood
+        total = unnormalized.sum()
+        if total > 0:
+            self.posterior = unnormalized / total
+        else:
+            self.posterior = np.ones(self.n_recipes) / self.n_recipes
+
+        self.posterior_history.append(self.posterior.copy())
+        self.frame_count += 1
+
+        return self.posterior.copy()
