@@ -11,3 +11,6 @@ data/
 
 ## output frame directories (large, regenerable)
 output/*_frames/
+
+## virtual environment
+.venv/
